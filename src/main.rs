@@ -11,9 +11,9 @@ pub struct FileId {
 #[tokio::main]
 async fn main() {
     let _ = dotenv::dotenv();
-    // Check if the environment variables are set.
+
     let repo = std::env::var("GITHUB_REPO").expect("GITHUB_REPO not set");
-    let token = std::env::var("GITHUB_TOKEN").unwrap();
+    let token = std::env::var("GITHUB_TOKEN").expect("GITHUB_TOKEN not set");
 
     let client = Client::builder()
         .default_headers({
@@ -49,9 +49,9 @@ pub async fn upload_file(file: Vec<u8>, repo: &str, client: Client) -> Result<Fi
     println!("creating hash");
     let hash = sha256::digest_bytes(&file);
 
-    // split the file into chunks of ~250 megabytes
+    // split the file into chunks of ~100 megabytes
     // I know GitHub allows releases of 2 gigabytes, but it takes too long to upload that much data.
-    let chunks = file.chunks(250_000_000);
+    let chunks = file.chunks(100_000_000);
     let chunks_len = chunks.len();
 
     let mut threads = Vec::with_capacity(chunks.len());
