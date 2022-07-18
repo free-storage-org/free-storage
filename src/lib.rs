@@ -74,8 +74,7 @@ impl FileId {
 
         let client = client(Some(token));
 
-        let (upload_url, assets_url) =
-            create_or_get_release(repo.as_ref(), "files", client.clone()).await?;
+        let assets_url = create_or_get_release(repo.as_ref(), "files", client.clone()).await?;
 
         unsafe {
             prepend_slice(&mut file_data, format!("{file_name}\n").as_bytes());
@@ -120,8 +119,10 @@ impl FileId {
         let mut threads = Vec::with_capacity(chunks.len());
 
         for (i, chunk) in chunks.enumerate() {
-            let mut url = upload_url.clone();
+            let mut url = assets_url.clone();
             url.set_query(Some(&format!("name={hash}-chunk{i}")));
+
+            println!("{url}");
 
             let client = client.clone();
             let chunk = chunk.to_vec();
@@ -141,7 +142,6 @@ impl FileId {
             let ret = thread.await??;
             if chunk == 0 {
                 let json = ret.json::<serde_json::Value>().await?;
-
                 println!("{json}");
                 asset_url = String::from(json["url"].as_str().unwrap());
             }
@@ -191,9 +191,9 @@ impl FileId {
     }
 }
 
-/// Creates a new release on GitHub and returns the `upload_url`.
-/// If the release exists, it will only return the `upload_url`.
-async fn create_or_get_release(repo: &str, tag: &str, client: Client) -> Result<(Url, Url)> {
+/// Creates a new release on GitHub and returns the `assets_url`.
+/// If the release exists, it will only return the `assets_url`.
+async fn create_or_get_release(repo: &str, tag: &str, client: Client) -> Result<Url> {
     let get_release = || async {
         let url = format!("https://api.github.com/repos/{repo}/releases/tags/{tag}");
         let release = client
@@ -203,14 +203,11 @@ async fn create_or_get_release(repo: &str, tag: &str, client: Client) -> Result<
             .json::<serde_json::Value>()
             .await?;
 
-        Result::Ok(release.get("upload_url").and_then(|u| {
-            release.get("assets_url").map(|a| {
-                (
-                    parse_url(u.as_str().unwrap()).unwrap(),
-                    parse_url(a.as_str().unwrap()).unwrap(),
-                )
-            })
-        }))
+        Result::Ok(
+            release
+                .get("assets_url")
+                .map(|a| a.as_str().unwrap().parse().unwrap()),
+        )
     };
     let create_release = || async {
         let url = format!("https://api.github.com/repos/{repo}/releases");
@@ -223,6 +220,8 @@ async fn create_or_get_release(repo: &str, tag: &str, client: Client) -> Result<
             .await?
             .json::<serde_json::Value>()
             .await?;
+
+        println!("{release}");
 
         Result::Ok(release.get("upload_url").and_then(|u| {
             release.get("assets_url").map(|a| {
