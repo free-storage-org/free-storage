@@ -1,5 +1,4 @@
-use reqwest::{header, Client};
-use serde::{Deserialize, Serialize};
+use reqwest::{header, Client, Url};
 
 #[derive(Debug)]
 pub enum Error {
@@ -7,6 +6,7 @@ pub enum Error {
     Serde(serde_json::Error),
     Io(std::io::Error),
     Tokio(tokio::task::JoinError),
+    Url(url::ParseError),
 }
 
 impl std::fmt::Display for Error {
@@ -16,6 +16,7 @@ impl std::fmt::Display for Error {
             Error::Serde(e) => write!(f, "Serde error: {}", e),
             Error::Io(e) => write!(f, "IO error: {}", e),
             Error::Tokio(e) => write!(f, "Join error: {}", e),
+            Error::Url(e) => write!(f, "Error paring URL: {}", e),
         }
     }
 }
@@ -41,15 +42,20 @@ impl From<tokio::task::JoinError> for Error {
         Error::Tokio(e)
     }
 }
+impl From<url::ParseError> for Error {
+    fn from(e: url::ParseError) -> Self {
+        Error::Url(e)
+    }
+}
 
 type Result<T> = std::result::Result<T, Error>;
 
 /// A struct that holds the data for a single file.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FileId {
-    pub(crate) asset_url: String,
+    pub(crate) asset_url: Url,
     pub(crate) chunks: usize,
-    pub(crate) file_name: String,
 }
 
 impl FileId {
@@ -59,30 +65,23 @@ impl FileId {
     /// `repo` must be in the format `owner/repo`.
     pub async fn upload_file(
         file_name: impl Into<String>,
-        file_data: impl AsRef<[u8]>,
+        file_data: impl Into<Vec<u8>>,
         repo: impl AsRef<str>,
         token: impl AsRef<str>,
     ) -> Result<Self> {
-        let file_data = file_data.as_ref();
+        let mut file_data = file_data.into();
+        let file_name = file_name.into();
 
-        let client = Client::builder()
-            .default_headers({
-                let mut map = header::HeaderMap::new();
-                map.insert(header::AUTHORIZATION, {
-                    let mut header =
-                        header::HeaderValue::from_str(&format!("token {}", token.as_ref()))
-                            .unwrap();
-                    header.set_sensitive(true);
-                    header
-                });
-                map
-            })
-            .build()?;
+        let client = client(Some(token));
 
         let (upload_url, assets_url) =
             create_or_get_release(repo.as_ref(), "files", client.clone()).await?;
 
-        let hash = sha256::digest_bytes(file_data);
+        unsafe {
+            prepend_slice(&mut file_data, format!("{file_name}\n").as_bytes());
+        }
+
+        let hash = sha256::digest_bytes(&file_data);
 
         // split the file into chunks of ~100 megabytes
         // I know GitHub allows releases of 2 gigabytes, but it takes too long to upload that much data.
@@ -106,9 +105,13 @@ impl FileId {
                         .map(|name| name == format!("{hash}-chunk0"))
                 {
                     return Ok(FileId {
-                        asset_url: asset["browser_download_url"].as_str().unwrap().to_string(),
+                        asset_url: asset["browser_download_url"]
+                            .as_str()
+                            .unwrap()
+                            .strip_suffix("-chunk0")
+                            .unwrap()
+                            .parse()?,
                         chunks: chunks_len,
-                        file_name: file_name.into(),
                     });
                 };
             }
@@ -138,42 +141,28 @@ impl FileId {
             let ret = thread.await??;
             if chunk == 0 {
                 let json = ret.json::<serde_json::Value>().await?;
-                asset_url = json["url"].as_str().unwrap().to_string();
+
+                println!("{json}");
+                asset_url = String::from(json["url"].as_str().unwrap());
             }
         }
 
+        println!("{asset_url}");
+
         Ok(Self {
-            asset_url,
+            asset_url: asset_url.strip_suffix("-chunk0").unwrap().parse()?,
             chunks: chunks_len,
-            file_name: file_name.into(),
         })
     }
 
     /// Downloads the file from the GitHub repository's releases.
     ///
     /// The token must have read access to the repository.
-    pub async fn get_file<T: Into<String>>(self, token: Option<T>) -> Result<Vec<u8>> {
-        let mut file = Vec::new();
+    pub async fn get_file<T: Into<String>>(self, token: Option<T>) -> Result<(Vec<u8>, String)> {
+        let mut file = Vec::<u8>::new();
         let mut threads = Vec::with_capacity(self.chunks);
 
-        let client = if let Some(token) = token {
-            let client = Client::builder()
-                .default_headers({
-                    let mut map = header::HeaderMap::new();
-                    map.insert(header::AUTHORIZATION, {
-                        let mut header =
-                            header::HeaderValue::from_str(&format!("token {}", token.into()))
-                                .unwrap();
-                        header.set_sensitive(true);
-                        header
-                    });
-                    map
-                })
-                .build()?;
-            client
-        } else {
-            Client::new()
-        };
+        let client = client(token.map(|t| t.into()));
 
         for i in 0..self.chunks {
             let client = client.clone();
@@ -185,63 +174,70 @@ impl FileId {
         for thread in threads {
             let res = thread.await??;
             let chunk = res.bytes().await?;
-            file.append(&mut chunk.to_vec());
+            file.extend(&chunk);
         }
 
-        Ok(file)
+        let file = file.into_iter();
+
+        let file_name = file
+            .clone()
+            .map(|b| b as char)
+            .take_while(|&c| c != '\n')
+            .collect::<String>();
+
+        let file = file.skip(file_name.len() + 1).collect::<Vec<_>>();
+
+        Ok((file, file_name))
     }
 }
 
 /// Creates a new release on GitHub and returns the `upload_url`.
 /// If the release exists, it will only return the `upload_url`.
-async fn create_or_get_release(
-    repo: &str,
-    tag: &str,
-    client: Client,
-) -> Result<(url::Url, url::Url)> {
-    let url = format!("https://api.github.com/repos/{repo}/releases/tags/{tag}");
-    let release = client
-        .get(url)
-        .send()
-        .await?
-        .json::<serde_json::Value>()
-        .await?;
+async fn create_or_get_release(repo: &str, tag: &str, client: Client) -> Result<(Url, Url)> {
+    let get_release = || async {
+        let url = format!("https://api.github.com/repos/{repo}/releases/tags/{tag}");
+        let release = client
+            .get(url)
+            .send()
+            .await?
+            .json::<serde_json::Value>()
+            .await?;
 
-    if let Some(urls) = release.get("upload_url").and_then(|u| {
-        release.get("assets_url").map(|a| {
-            (
-                u.as_str().unwrap().parse().unwrap(),
-                a.as_str().unwrap().parse().unwrap(),
-            )
-        })
-    }) {
-        Ok(urls)
-    } else {
-        let url = format!("https://api.github.com/repos/{}/releases", repo);
+        Result::Ok(release.get("upload_url").and_then(|u| {
+            release.get("assets_url").map(|a| {
+                (
+                    parse_url(u.as_str().unwrap()).unwrap(),
+                    parse_url(a.as_str().unwrap()).unwrap(),
+                )
+            })
+        }))
+    };
+    let create_release = || async {
+        let url = format!("https://api.github.com/repos/{repo}/releases");
         let release = client
             .post(url)
             .json(&serde_json::json!({
                 "tag_name": tag,
-                "name": "Files",
-                "body": "",
-                "draft": false,
-                "prerelease": false
             }))
             .send()
             .await?
             .json::<serde_json::Value>()
             .await?;
 
-        if let Some(urls) = release.get("upload_url").and_then(|u| {
+        Result::Ok(release.get("upload_url").and_then(|u| {
             release.get("assets_url").map(|a| {
                 (
-                    u.as_str().unwrap().parse().unwrap(),
-                    a.as_str().unwrap().parse().unwrap(),
+                    parse_url(u.as_str().unwrap()).unwrap(),
+                    parse_url(a.as_str().unwrap()).unwrap(),
                 )
             })
-        }) {
-            Ok(urls)
-        } else {
+        }))
+    };
+
+    if let Some(urls) = get_release().await? {
+        Ok(urls)
+    } else {
+        if create_release().await.is_err() {
             // at this point, the repo is empty, so we need to create a file
             // to make it non-empty.
             let url = format!("https://api.github.com/repos/{repo}/contents/__no_empty_repo__",);
@@ -256,33 +252,45 @@ async fn create_or_get_release(
                 .await?
                 .text()
                 .await?;
-
-            let url = format!("https://api.github.com/repos/{}/releases", repo);
-            let release = client
-                .post(url)
-                .json(&serde_json::json!({
-                    "tag_name": tag,
-                    "name": "Files",
-                    "body": "",
-                    "draft": false,
-                    "prerelease": false
-                }))
-                .send()
-                .await?
-                .json::<serde_json::Value>()
-                .await?;
-
-            Ok(release
-                .get("upload_url")
-                .and_then(|u| {
-                    release.get("assets_url").map(|a| {
-                        (
-                            u.as_str().unwrap().parse().unwrap(),
-                            a.as_str().unwrap().parse().unwrap(),
-                        )
-                    })
-                })
-                .unwrap())
         }
+
+        Ok(get_release().await?.unwrap())
     }
+}
+
+unsafe fn prepend_slice<T: Copy>(vec: &mut Vec<T>, slice: &[T]) {
+    let len = vec.len();
+    let amt = slice.len();
+    vec.reserve(amt);
+
+    std::ptr::copy(vec.as_ptr(), vec.as_mut_ptr().add(amt), len);
+    std::ptr::copy(slice.as_ptr(), vec.as_mut_ptr(), amt);
+    vec.set_len(len + amt);
+}
+
+fn client(token: Option<impl AsRef<str>>) -> Client {
+    let client = Client::builder().user_agent("Rust").default_headers({
+        let mut map = header::HeaderMap::new();
+        if let Some(token) = token {
+            map.insert(header::AUTHORIZATION, {
+                let mut header =
+                    header::HeaderValue::from_str(&format!("token {}", token.as_ref())).unwrap();
+                header.set_sensitive(true);
+                header
+            });
+        }
+        map
+    });
+    client.build().unwrap()
+}
+
+fn parse_url(url: &str) -> Result<Url> {
+    let mut url = url.parse::<Url>()?;
+    url.set_query(Some(""));
+
+    if let Some(path) = url.clone().path().strip_suffix("%7B") {
+        url.set_path(path);
+    }
+
+    Ok(url)
 }
