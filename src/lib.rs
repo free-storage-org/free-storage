@@ -1,3 +1,5 @@
+use std::mem::MaybeUninit;
+
 use reqwest::{header, Client, Url};
 
 #[derive(Debug)]
@@ -102,12 +104,7 @@ impl FileId {
                     .map(|name| name == format!("{hash}-chunk0"))
             {
                 return Ok(FileId {
-                    asset_url: asset["browser_download_url"]
-                        .as_str()
-                        .unwrap()
-                        .strip_suffix("-chunk0")
-                        .unwrap()
-                        .parse()?,
+                    asset_url: parse_url(asset["browser_download_url"].as_str().unwrap())?,
                     chunks: chunks_len,
                 });
             };
@@ -132,17 +129,17 @@ impl FileId {
             }));
         }
 
-        let mut asset_url = String::new();
+        let mut asset_url = MaybeUninit::uninit();
         for (chunk, thread) in threads.into_iter().enumerate() {
             let ret = thread.await??;
             if chunk == 0 {
                 let json = ret.json::<serde_json::Value>().await?;
-                asset_url = String::from(json["url"].as_str().unwrap());
+                asset_url.write(parse_url(json["browser_download_url"].as_str().unwrap())?);
             }
         }
 
         Ok(Self {
-            asset_url: asset_url.parse()?,
+            asset_url: unsafe { asset_url.assume_init() },
             chunks: chunks_len,
         })
     }
@@ -228,27 +225,24 @@ async fn create_or_get_release(repo: &str, tag: &str, client: Client) -> Result<
 
     if let Some(urls) = get_release().await? {
         Ok(urls)
+    } else if let Ok(Some(release)) = create_release().await {
+        Ok(release)
     } else {
-        if let Ok(Some(release)) = create_release().await {
-            Ok(release)
-        } else {
-            // at this point, the repo is empty, so we need to create a file
-            // to make it non-empty.
-            let url = format!("https://api.github.com/repos/{repo}/contents/__no_empty_repo__",);
-            client
-                .put(url)
-                .json(&serde_json::json!({
-                    "message": "create file to allow creation of a release.",
-                    "content": "",
-                    "sha254": "",
-                }))
-                .send()
-                .await?
-                .text()
-                .await?;
+        // at this point, the repo probably has no commits.
+        let url = format!("https://api.github.com/repos/{repo}/contents/__no_empty_repo__",);
+        client
+            .put(url)
+            .json(&serde_json::json!({
+                "message": "add a commit to allow creation of a release.",
+                "content": "",
+                "sha254": "",
+            }))
+            .send()
+            .await?
+            .text()
+            .await?;
 
-            Ok(get_release().await?.unwrap())
-        }
+        Ok(get_release().await?.unwrap())
     }
 }
 
