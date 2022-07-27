@@ -19,6 +19,7 @@ async fn real_main() {
 }
 
 fn main() {
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(real_main());
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(real_main());
 }
