@@ -16,6 +16,8 @@ pub enum Error {
     Url(#[from] url::ParseError),
     #[error("Invalid Repository")]
     InvalidRepo,
+    #[error("Unauthorized")]
+    Unauthorized,
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -27,10 +29,8 @@ pub struct FileId {
     repo: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct AssetsResponse {
-    name: String,
-    browser_download_url: String,
     id: u32,
 }
 
@@ -111,12 +111,10 @@ impl FileId {
         }
 
         let mut asset_ids = Vec::with_capacity(chunks);
-        for (chunk, thread) in threads.into_iter().enumerate() {
-            let ret = thread.await.unwrap()?;
-            if chunk == 0 {
-                let json = ret.json::<AssetsResponse>().await?;
-                asset_ids.push(json.id);
-            }
+        for thread in threads {
+            let json = thread.await.unwrap()?.json::<AssetsResponse>().await?;
+
+            asset_ids.push(json.id);
         }
 
         Ok(Self { asset_ids, repo })
@@ -152,6 +150,11 @@ impl FileId {
 
         for thread in threads {
             let res = thread.await.unwrap()?;
+
+            if res.status().as_u16() == 404 {
+                return Err(Error::Unauthorized);
+            }
+
             let chunk = res.bytes().await?;
             file.extend(&chunk);
         }
@@ -211,7 +214,7 @@ async fn create_or_get_release(repo: &str, tag: &str, client: Client) -> Result<
             .json::<ReleaseResponse>()
             .await?;
 
-        Ok::<_, Error>(
+        Result::Ok(
             release
                 .assets_url
                 .and_then(|a| release.upload_url.map(|u| (a, u)))
@@ -225,8 +228,8 @@ async fn create_or_get_release(repo: &str, tag: &str, client: Client) -> Result<
 
     if let Ok(Some(urls)) = get_release().await {
         Ok(urls)
-    } else if let Ok(Some(release)) = create_release().await {
-        Ok(release)
+    } else if let Ok(Some(urls)) = create_release().await {
+        Ok(urls)
     } else {
         // at this point, the repo probably has no commits.
         let url = format!("https://api.github.com/repos/{repo}/contents/__no_empty_repo__",);
@@ -242,8 +245,8 @@ async fn create_or_get_release(repo: &str, tag: &str, client: Client) -> Result<
             .text()
             .await?;
 
-        if let Ok(Some(release)) = create_release().await {
-            Ok(release)
+        if let Ok(Some(urls)) = create_release().await {
+            Ok(urls)
         } else {
             Err(Error::InvalidRepo)
         }
