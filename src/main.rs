@@ -33,34 +33,34 @@ struct Args {
 
 #[derive(Debug, clap::Subcommand)]
 enum Action {
-    /// Upload a file.
+    /// Upload a file
     Upload {
-        /// The path of the file to upload.
+        /// The path of the file to upload
         #[arg(value_parser = validate_path)]
         file_path: PathBuf,
         #[arg(value_parser = validate_repo)]
-        /// Repository to put files in.
+        /// Repository to put files in
         ///
-        /// Must be in `owner/repo` format.
+        /// Must be in `owner/repo` format
         repo: String,
-        /// A GitHub token to use to upload/retrieve files.
+        /// A GitHub token to use to upload/retrieve files
         ///
-        /// Must have read and write access to the repository.
+        /// Must have read and write access to the repository
         token: String,
-        /// The file to output the [`FileId`] in MessagePack format.
+        /// The file to output the [`FileId`] in MessagePack format
         output_path: PathBuf,
     },
-    /// Download a file.
+    /// Download a file
     Download {
-        /// The filename of a [`FileId`] in MessagePack format.
+        /// The filename of a [`FileId`] in MessagePack format
         #[arg(value_parser = validate_path)]
         fileid_path: PathBuf,
-        /// The token to use to read the files.
+        /// The token to use to read the files
         #[arg(short, long)]
         token: Option<String>,
-        /// The output path to use.
+        /// The output path to use
         ///
-        /// Defaults to the original filename.
+        /// Defaults to the original filename
         #[arg(short, long)]
         output_path: Option<PathBuf>,
     },
