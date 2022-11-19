@@ -18,7 +18,7 @@ fn validate_path(s: &str) -> Result<PathBuf, String> {
     }
 }
 fn validate_repo(s: &str) -> Result<String, String> {
-    if s.split('/').count() != 2 && !s.contains("github.com") {
+    if s.split('/').count() != 2 {
         Err(String::from(
             "Invalid repository. Must be in `owner/repo` format.",
         ))
@@ -41,10 +41,10 @@ enum Action {
         /// The path of the file to upload
         #[arg(value_parser = validate_path)]
         file_path: PathBuf,
-        #[arg(value_parser = validate_repo)]
         /// Repository to put files in
         ///
         /// Must be in `owner/repo` format
+        #[arg(value_parser = validate_repo)]
         repo: String,
         /// A GitHub token to use to upload/retrieve files
         ///
@@ -95,7 +95,7 @@ fn get_token(token: Option<String>) -> String {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt().without_time().compact().init();
 
     match Args::parse().action {
         Action::Upload {
