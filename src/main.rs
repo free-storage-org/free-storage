@@ -1,11 +1,17 @@
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
 use clap::Parser;
 use free_storage::FileId;
 
-fn validate_file_name(s: &str) -> Result<String, String> {
-    if !std::path::Path::new(s).exists() {
+fn validate_path(s: &str) -> Result<PathBuf, String> {
+    let p = Path::new(s);
+    if !p.exists() {
         Err(format!("`{s}` doesn't exist."))
     } else {
-        Ok(String::from(s))
+        Ok(p.to_owned())
     }
 }
 fn validate_repo(s: &str) -> Result<String, String> {
@@ -21,41 +27,79 @@ fn validate_repo(s: &str) -> Result<String, String> {
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// The name of the file to upload
-    #[arg(value_parser = validate_file_name)]
-    file_name: String,
-    #[arg(value_parser = validate_repo)]
-    /// Repository to put files in.
-    ///
-    /// Must be in `owner/repo` format.
-    repo: String,
-    /// A GitHub token to use to upload/retrieve files.
-    ///
-    /// Must have read and write access to the repository.
-    token: String,
-    /// The file to output the [`FileId`] in MessagePack format.
-    output_file: String,
+    #[command(subcommand)]
+    action: Action,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum Action {
+    /// Upload a file.
+    Upload {
+        /// The path of the file to upload.
+        #[arg(value_parser = validate_path)]
+        file_path: PathBuf,
+        #[arg(value_parser = validate_repo)]
+        /// Repository to put files in.
+        ///
+        /// Must be in `owner/repo` format.
+        repo: String,
+        /// A GitHub token to use to upload/retrieve files.
+        ///
+        /// Must have read and write access to the repository.
+        token: String,
+        /// The file to output the [`FileId`] in MessagePack format.
+        output_path: PathBuf,
+    },
+    /// Download a file.
+    Download {
+        /// The filename of a [`FileId`] in MessagePack format.
+        #[arg(value_parser = validate_path)]
+        fileid_path: PathBuf,
+        /// The token to use to read the files.
+        #[arg(short, long)]
+        token: Option<String>,
+        /// The output path to use.
+        ///
+        /// Defaults to the original filename.
+        #[arg(short, long)]
+        output_path: Option<PathBuf>,
+    },
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let Args {
-        file_name,
-        repo,
-        token,
-        output_file,
-    } = Args::parse();
+    match Args::parse().action {
+        Action::Upload {
+            file_path,
+            repo,
+            token,
+            output_path,
+        } => {
+            let fid = FileId::upload_file(
+                &*file_path.file_name().unwrap().to_string_lossy(),
+                &*fs::read(&file_path).unwrap(),
+                repo,
+                &token,
+            )
+            .await?;
 
-    let fid = FileId::upload_file(
-        &file_name,
-        &*std::fs::read(&file_name).unwrap(),
-        repo,
-        &token,
-    )
-    .await
-    .unwrap();
+            fs::write(output_path, rmp_serde::to_vec(&fid)?)?;
+        }
+        Action::Download {
+            fileid_path,
+            token,
+            output_path,
+        } => {
+            let fid = rmp_serde::from_slice::<FileId>(&fs::read(fileid_path)?)?;
+            let (data, name) = fid.get_file(token).await?;
 
-    std::fs::write(output_file, rmp_serde::to_vec(&fid)?)?;
+            if let Some(path) = output_path {
+                fs::write(path, data)?;
+            } else {
+                fs::write(Path::new(&name).file_name().unwrap(), data)?;
+            }
+        }
+    }
 
     Ok(())
 }
