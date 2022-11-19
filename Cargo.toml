@@ -13,17 +13,20 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 uuid = { version = "1.2", features = ["v4"] }
 thiserror = "1.0"
+tracing = "0.1"
 
 rmp-serde = { version = "1.1", optional = true }
 clap = { version = "4.0", features = ["derive"], optional = true }
-log = { version = "0.4", optional = true }
+tracing-subscriber = { version = "0.3", optional = true }
+dirs = { version = "4.0", optional = true }
 
 [[bin]]
-name = "free-storage"
+name = "storage"
+path = "src/main.rs"
 required-features = ["cli"]
 
 [features]
-cli = ["tokio/macros", "rmp-serde", "clap", "log"]
+cli = ["tokio/macros", "rmp-serde", "clap", "tracing-subscriber", "dirs"]
 
 [profile.release]
 lto = true

@@ -1,3 +1,4 @@
+use serde_json::json;
 use std::io::Read;
 use uuid::Uuid;
 
@@ -67,6 +68,8 @@ impl FileId {
 
             let client = client.clone();
 
+            tracing::trace!("Reading chunk {chunks}");
+
             let mut chunk = {
                 // We're only using 100 megabytes because of the time it takes to upload to GitHub
                 let mut chunk = vec![0; 100_000_000];
@@ -87,6 +90,7 @@ impl FileId {
                     break;
                 }
                 if read < 100_000_000 {
+                    tracing::trace!("Resizing chunk {chunks} from 100,000,000 to {read}");
                     // Don't keep all the trailing NULL bytes
                     chunk.splice(..read, []).collect()
                 } else {
@@ -99,6 +103,10 @@ impl FileId {
             }
 
             threads.push(tokio::spawn(async move {
+                tracing::debug!(
+                    "Uploading chunk {chunks} with {} bytes to {url}",
+                    chunk.len()
+                );
                 client
                     .post(url)
                     .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
@@ -125,6 +133,8 @@ impl FileId {
     /// The token must have read access to the repository.
     pub async fn get_file<T: Into<String>>(self, token: Option<T>) -> Result<(Vec<u8>, String)> {
         let chunks = self.asset_ids.len();
+
+        tracing::debug!("Downloading {chunks} chunks");
 
         let mut file = Vec::<u8>::new();
         let mut threads = Vec::with_capacity(chunks);
@@ -184,6 +194,9 @@ struct ReleaseResponse {
 async fn create_or_get_release(repo: &str, tag: &str, client: Client) -> Result<(Url, Url)> {
     let get_release = || async {
         let url = format!("https://api.github.com/repos/{repo}/releases/tags/{tag}");
+
+        tracing::trace!("Getting release at {url}");
+
         let release = client
             .get(url)
             .send()
@@ -204,9 +217,12 @@ async fn create_or_get_release(repo: &str, tag: &str, client: Client) -> Result<
     };
     let create_release = || async {
         let url = format!("https://api.github.com/repos/{repo}/releases");
+
+        tracing::trace!("Creating release at {url} with tag {tag}");
+
         let release = client
             .post(url)
-            .json(&serde_json::json!({
+            .json(&json!({
                 "tag_name": tag,
             }))
             .send()
@@ -235,7 +251,7 @@ async fn create_or_get_release(repo: &str, tag: &str, client: Client) -> Result<
         let url = format!("https://api.github.com/repos/{repo}/contents/__no_empty_repo__",);
         client
             .put(url)
-            .json(&serde_json::json!({
+            .json(&json!({
                 "message": "add a commit to allow creation of a release.",
                 "content": "",
                 "sha254": "",
@@ -248,6 +264,11 @@ async fn create_or_get_release(repo: &str, tag: &str, client: Client) -> Result<
         if let Ok(Some(urls)) = create_release().await {
             Ok(urls)
         } else {
+            tracing::debug!(
+                "Could not create release. This could be because:
+                                                            *   The repo doesn't exist
+                                                            *   The token is invalid"
+            );
             Err(Error::InvalidRepo)
         }
     }
