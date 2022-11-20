@@ -1,5 +1,5 @@
 use serde_json::json;
-use std::io::Read;
+use std::io::{ErrorKind, Read};
 use uuid::Uuid;
 
 use reqwest::{header, Client, Url};
@@ -74,18 +74,19 @@ impl FileId {
                 // We're only using 100 megabytes because of the time it takes to upload to GitHub
                 let mut chunk = vec![0; 100_000_000];
 
-                let read = 'reader: {
-                    for _ in 0..5 {
-                        match file_data.read(&mut chunk) {
-                            Ok(a) => break 'reader a,
-                            Err(_) => {
+                let read = loop {
+                    match file_data.read(&mut chunk) {
+                        Ok(a) => break a,
+                        Err(e) => {
+                            if e.kind() == ErrorKind::WouldBlock {
                                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                            } else {
+                                return Err(e.into());
                             }
-                        };
-                    }
-
-                    file_data.read(&mut chunk)?
+                        }
+                    };
                 };
+
                 if read == 0 {
                     break;
                 }
