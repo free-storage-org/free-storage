@@ -47,7 +47,7 @@ impl FileId {
         token: impl AsRef<str>,
     ) -> Result<Self> {
         let repo = repo.into();
-        if repo.split('/').count() != 2 && !repo.contains("github.com") {
+        if repo.split('/').count() != 2 {
             return Err(Error::InvalidRepo);
         }
 
