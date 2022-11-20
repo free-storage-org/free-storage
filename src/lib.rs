@@ -40,7 +40,7 @@ impl FileId {
     ///
     /// The token must have read and write access to the repository.
     /// `repo` must be in the format `owner/repo`.
-    pub async fn upload_file(
+    pub async fn upload(
         file_name: impl Into<String>,
         mut file_data: impl Read,
         repo: impl Into<String>,
@@ -132,7 +132,7 @@ impl FileId {
     /// Downloads the file from the GitHub repository's releases.
     ///
     /// The token must have read access to the repository.
-    pub async fn get_file<T: Into<String>>(self, token: Option<T>) -> Result<(Vec<u8>, String)> {
+    pub async fn get<T: Into<String>>(self, token: Option<T>) -> Result<(Vec<u8>, String)> {
         let chunks = self.asset_ids.len();
 
         tracing::debug!("Downloading {chunks} chunks");

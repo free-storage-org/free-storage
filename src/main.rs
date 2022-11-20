@@ -106,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             let token = get_token(token);
 
-            let fid = FileId::upload_file(
+            let fid = FileId::upload(
                 &*file_path.file_name().unwrap().to_string_lossy(),
                 &*fs::read(&file_path).unwrap(),
                 repo,
@@ -122,7 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             out_path,
         } => {
             let fid = rmp_serde::from_slice::<FileId>(&fs::read(fileid_path)?)?;
-            let (data, name) = fid.get_file(token).await?;
+            let (data, name) = fid.get(token).await?;
 
             if let Some(path) = out_path {
                 fs::write(path, data)?;
