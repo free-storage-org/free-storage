@@ -139,7 +139,7 @@ impl FileId {
         let mut file = Vec::<u8>::new();
         let mut threads = Vec::with_capacity(chunks);
 
-        let client = client(token.map(|t| t.into()));
+        let client = client(token.map(Into::into));
 
         for asset_id in self.asset_ids {
             let url = format!(

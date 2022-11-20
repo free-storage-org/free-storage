@@ -11,10 +11,10 @@ use serde_json::json;
 
 fn validate_path(s: &str) -> Result<PathBuf, String> {
     let p = Path::new(s);
-    if !p.exists() {
-        Err(format!("`{s}` doesn't exist."))
-    } else {
+    if p.exists() {
         Ok(p.to_owned())
+    } else {
+        Err(format!("`{s}` doesn't exist."))
     }
 }
 fn validate_repo(s: &str) -> Result<String, String> {
