@@ -46,10 +46,14 @@ impl FileId {
         repo: impl Into<String>,
         token: impl AsRef<str>,
     ) -> Result<Self> {
+        let file_name = file_name.into();
         let repo = repo.into();
+
         if repo.split('/').count() != 2 {
             return Err(Error::InvalidRepo);
         }
+
+        tracing::debug!("Uploading file {file_name} to GitHub repo {repo}");
 
         let client = client(Some(token));
 
@@ -59,7 +63,6 @@ impl FileId {
 
         let mut threads = Vec::new();
 
-        let file_name = file_name.into();
         let mut chunks = 0;
 
         loop {
