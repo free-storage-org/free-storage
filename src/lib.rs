@@ -153,7 +153,7 @@ impl FileId {
     ///
     /// Returns an [`Error::Reqwest`] if there was a network error.
     pub async fn get<T: Into<String> + Sync + Send>(
-        self,
+        &self,
         token: Option<T>,
     ) -> Result<(Vec<u8>, String)> {
         let chunks = self.asset_ids.len();
@@ -165,7 +165,7 @@ impl FileId {
 
         let client = client(token.map(Into::into));
 
-        for asset_id in self.asset_ids {
+        for asset_id in &self.asset_ids {
             let url = format!(
                 "https://api.github.com/repos/{}/releases/assets/{asset_id}",
                 self.repo

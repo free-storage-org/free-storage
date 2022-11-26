@@ -194,7 +194,7 @@ dependencies = [
 
 [[package]]
 name = "free-storage"
-version = "1.0.1"
+version = "1.0.3"
 dependencies = [
  "clap",
  "dirs",
