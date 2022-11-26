@@ -2,6 +2,10 @@
 name = "free-storage"
 version = "1.0.0"
 edition = "2021"
+description = "A library that uploads files for free without a size or bandwith cap. Requires a GitHub account. May get you suspended from GitHub if you upload too much."
+license = "MIT"
+documentation = "https://docs.rs/free-storage"
+repository = "https://github.com/free-storage-org/free-storage"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

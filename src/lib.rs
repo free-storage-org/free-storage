@@ -1,3 +1,6 @@
+#![warn(clippy::nursery, clippy::pedantic)]
+#![allow(clippy::missing_panics_doc)]
+
 use serde_json::json;
 use std::io::{ErrorKind, Read};
 use uuid::Uuid;
@@ -24,6 +27,7 @@ pub enum Error {
 type Result<T> = std::result::Result<T, Error>;
 
 /// A struct that holds the data for a single file.
+#[allow(clippy::unsafe_derive_deserialize)]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FileId {
     asset_ids: Vec<u32>,
@@ -40,11 +44,15 @@ impl FileId {
     ///
     /// The token must have read and write access to the repository.
     /// `repo` must be in the format `owner/repo`.
+    ///
+    /// # Errors
+    /// Returns an [`Error::InvalidRepo`] if `repo` is not in the correct format, it doesn't exist,
+    /// or if the token does not have `read`/`write` access to the repository.
     pub async fn upload(
-        file_name: impl Into<String>,
-        mut file_data: impl Read,
-        repo: impl Into<String>,
-        token: impl AsRef<str>,
+        file_name: impl Into<String> + Send + Sync,
+        mut file_data: impl Read + Send + Sync,
+        repo: impl Into<String> + Send + Sync,
+        token: impl AsRef<str> + Send + Sync,
     ) -> Result<Self> {
         let file_name = file_name.into();
         let repo = repo.into();
@@ -135,7 +143,16 @@ impl FileId {
     /// Downloads the file from the GitHub repository's releases.
     ///
     /// The token must have read access to the repository.
-    pub async fn get<T: Into<String>>(self, token: Option<T>) -> Result<(Vec<u8>, String)> {
+    ///
+    /// # Errors
+    /// Returns an [`Error::Unauthorized`] if the token does not have read access to the repository
+    /// or if the file doesn't exist.
+    ///
+    /// Returns an [`Error::Reqwest`] if there was a network error.
+    pub async fn get<T: Into<String> + Sync + Send>(
+        self,
+        token: Option<T>,
+    ) -> Result<(Vec<u8>, String)> {
         let chunks = self.asset_ids.len();
 
         tracing::debug!("Downloading {chunks} chunks");
