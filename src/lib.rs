@@ -48,13 +48,16 @@ impl FileId {
     /// # Errors
     /// Returns an [`Error::InvalidRepo`] if `repo` is not in the correct format, it doesn't exist,
     /// or if the token does not have `read`/`write` access to the repository.
-    pub async fn upload(
-        file_name: impl Into<String> + Send + Sync,
+    pub async fn upload<S: Into<String> + Send + Sync>(
+        file_name: S,
         mut file_data: impl Read + Send + Sync,
         repo: impl Into<String> + Send + Sync,
         token: impl AsRef<str> + Send + Sync,
     ) -> Result<Self> {
-        let file_name = file_name.into();
+        let file_name = <S as Into<String>>::into(file_name)
+            .chars()
+            .filter(|&c| c.is_alphanumeric() && c != '.' && c != '?' && c != '!')
+            .collect::<String>();
         let repo = repo.into();
 
         if repo.split('/').count() != 2 {
