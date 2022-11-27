@@ -1,5 +1,5 @@
 #![warn(clippy::nursery, clippy::pedantic)]
-#![allow(clippy::missing_panics_doc)]
+#![allow(clippy::missing_panics_doc, clippy::must_use_candidate)]
 
 use serde_json::json;
 use std::io::{ErrorKind, Read};
@@ -40,6 +40,13 @@ struct AssetsResponse {
 }
 
 impl FileId {
+    /// Creates a new [`FileId`] from raw `asset_ids` and a `repo`.
+    ///
+    /// This usually isn't used, instead use [`Self::upload`].
+    pub fn from_raw(asset_ids: Vec<u32>, repo: String) -> Self {
+        Self { asset_ids, repo }
+    }
+
     /// Uploads a file to the GitHub repository's releases.
     ///
     /// The token must have read and write access to the repository.
