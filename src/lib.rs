@@ -63,7 +63,7 @@ impl FileId {
     ) -> Result<Self> {
         let file_name = <S as Into<String>>::into(file_name)
             .chars()
-            .filter(|&c| c.is_alphanumeric() && c != '.' && c != '?' && c != '!')
+            .filter(|&c| c.is_alphanumeric() && c != '?' && c != '!')
             .collect::<String>();
         let repo = repo.into();
 

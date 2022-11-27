@@ -1,6 +1,6 @@
 [package]
 name = "free-storage"
-version = "1.0.5"
+version = "1.0.6"
 edition = "2021"
 description = "A library that uploads files for free without a size or bandwith cap. Requires a GitHub account. May get you suspended from GitHub if you upload too much."
 license = "MIT"
