@@ -1,6 +1,6 @@
 [package]
 name = "free-storage"
-version = "1.0.7"
+version = "1.0.8"
 edition = "2021"
 description = "A library that uploads files for free without a size or bandwith cap. Requires a GitHub account. May get you suspended from GitHub if you upload too much."
 license = "MIT"
@@ -11,7 +11,7 @@ repository = "https://github.com/free-storage-org/free-storage"
 
 [dependencies]
 url = { version = "2.2", features = ["serde"] }
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", default-features = false, features = ["json"] }
 tokio = { version = "1.22", features = ["rt-multi-thread"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -30,7 +30,14 @@ path = "src/main.rs"
 required-features = ["cli"]
 
 [features]
-cli = ["tokio/macros", "rmp-serde", "clap", "tracing-subscriber", "dirs"]
+cli = [
+    "reqwest/rustls-tls",
+    "tokio/macros",
+    "rmp-serde",
+    "clap",
+    "tracing-subscriber",
+    "dirs",
+]
 
 [profile.release]
 lto = true
