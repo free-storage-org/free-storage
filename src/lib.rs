@@ -18,8 +18,8 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("Error Parsing URL: {0}")]
     Url(#[from] url::ParseError),
-    #[error("Invalid Repository")]
-    InvalidRepo,
+    #[error("Invalid Repository OR The Token is Invalid")]
+    InvalidRepoOrInvalidToken,
     #[error("Unauthorized")]
     Unauthorized,
 }
@@ -61,7 +61,7 @@ impl FileId {
         let repo = repo.into();
 
         if repo.split('/').count() != 2 {
-            return Err(Error::InvalidRepo);
+            return Err(Error::InvalidRepoOrInvalidToken);
         }
 
         tracing::debug!("Uploading file {file_name} to GitHub repo {repo}");
@@ -293,7 +293,7 @@ async fn create_or_get_release(repo: &str, tag: &str, client: Client) -> Result<
                                                             *   The repo doesn't exist
                                                             *   The token is invalid"
             );
-            Err(Error::InvalidRepo)
+            Err(Error::InvalidRepoOrInvalidToken)
         }
     }
 }
